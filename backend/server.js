@@ -2,14 +2,24 @@ const express = require('express');
 const http = require('http');
 const {Server} = require("socket.io");
 
+
 // --- 伺服器基本設定 ---
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
+// --- CORS 設定 ---
+const allowedOrigin = "https://project.xinshou.tw";
+
+// 設定 Express 的 CORS
+app.use(cors({
+    origin: allowedOrigin
+}));
+
+// 設定 Socket.IO 的 CORS
 const io = new Server(server, {
     cors: {
-        origin: "*", // 生產環境建議指定前端的 URL
+        origin: allowedOrigin,
         methods: ["GET", "POST"]
     }
 });
