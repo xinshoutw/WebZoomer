@@ -18,32 +18,19 @@ const io = new Server(server, {
     },
 });
 
-/**
- * @description 追蹤所有房間的狀態。
- * 結構: { roomId: { members: Set<string>, offerSent: boolean } }
- */
 const roomState = {};
 
-// 健康檢查路由
 app.get('/', (req, res) => res.send('<h1>✅ WebRTC Signaling Server is Active and Robust</h1>'));
 
-// --- Socket.IO 連線邏輯 ---
 io.on('connection', (socket) => {
     console.log(`[Connect] User connected: ${socket.id}`);
 
-    /**
-     * 處理用戶加入房間的請求
-     */
     socket.on('join-room', (roomId) => {
         if (!/^\d{4}$/.test(roomId)) {
             socket.emit('error', { message: 'Invalid room ID format.' });
             return;
         }
 
-        // 為使用者離開時的清理作準備
-        socket.roomId = roomId;
-
-        // 初始化房間 (如果不存在)
         if (!roomState[roomId]) {
             roomState[roomId] = {
                 members: new Set(),
@@ -54,54 +41,51 @@ io.on('connection', (socket) => {
         if (roomState[roomId].members.size >= 2) {
             console.log(`[Room Full] User ${socket.id} failed to join full room: ${roomId}`);
             socket.emit('room-full', { message: 'This room is full.' });
-            return;
+            return; // 因為在這裡 return，所以不會執行到後面的加入邏輯
         }
 
-        // 將用戶加入房間
+        // 【主要修復點一】只有在所有檢查通過後，才將使用者與房間關聯
+        socket.roomId = roomId; // 賦值操作移到這裡
         socket.join(roomId);
         roomState[roomId].members.add(socket.id);
         console.log(`[Join] User ${socket.id} joined room: ${roomId}. Members: ${roomState[roomId].members.size}`);
 
-        // 通知房間內的其他用戶，有新人加入了
         const otherUser = Array.from(roomState[roomId].members).find(id => id !== socket.id);
         if (otherUser) {
             io.to(otherUser).emit('user-joined', { userId: socket.id });
         }
     });
 
-    /**
-     * 處理 WebRTC 信令轉發的核心邏輯
-     */
     socket.on('forward-signal', (data) => {
         const roomId = socket.roomId;
         if (!roomId || !roomState[roomId]) return;
-
         const otherUser = Array.from(roomState[roomId].members).find(id => id !== socket.id);
         if (!otherUser) return;
 
         if (!roomState[roomId].offerSent) {
-            console.log(`[Signal] Forwarding OFFER from ${socket.id} to ${otherUser}`);
             io.to(otherUser).emit('offer-received', { from: socket.id, signal: data.signal });
             roomState[roomId].offerSent = true;
         } else {
-            console.log(`[Signal] Forwarding ANSWER/ICE from ${socket.id} to ${otherUser}`);
             io.to(otherUser).emit('signal', { from: socket.id, signal: data.signal });
         }
     });
 
-    /**
-     * 處理用戶斷開連線
-     */
     socket.on('disconnecting', () => {
         console.log(`[Disconnecting] User starting to disconnect: ${socket.id}`);
         const roomId = socket.roomId;
 
-        if (roomId && roomState[roomId]) {
+        // 如果該使用者從未成功加入任何房間，則直接忽略
+        if (!roomId || !roomState[roomId]) {
+            return;
+        }
+
+        // 【主要修復點二】雙重確認該使用者是否真的是這個房間的成員
+        if (roomState[roomId].members.has(socket.id)) {
             // 從成員列表中移除該用戶
             roomState[roomId].members.delete(socket.id);
             console.log(`[Leave] User ${socket.id} left room: ${roomId}. Members left: ${roomState[roomId].members.size}`);
 
-            // 【修復問題一】重置通話狀態，讓攝影機可以對下一個人發起新通話
+            // 重置通話狀態，讓攝影機可以對下一個人發起新通話
             roomState[roomId].offerSent = false;
 
             // 通知房間內尚存的用戶
@@ -110,7 +94,6 @@ io.on('connection', (socket) => {
                 io.to(remainingUser).emit('user-left');
             }
 
-            // 【健壯性增強】如果房間空了，從記憶體中刪除這個房間以釋放資源
             if (roomState[roomId].members.size === 0) {
                 console.log(`[Cleanup] Deleting empty room: ${roomId}`);
                 delete roomState[roomId];
@@ -123,7 +106,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// --- 啟動伺服器 ---
 server.listen(PORT, () => {
     console.log(`🚀 Server listening on http://localhost:${PORT}`);
 });
