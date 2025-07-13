@@ -338,7 +338,11 @@
             const initSocket = () => {
                 return new Promise((resolve, reject) => {
                     // ... socket 連線部分不變 ...
-                    socket.value = io(SIGNALING_SERVER_URL, {reconnectionAttempts: 3});
+                    socket.value = io(SIGNALING_SERVER_URL, {
+                        path: "/api/v1/socket.io/",
+                        transports: ['websocket'],
+                        reconnectionAttempts: 3
+                    });
                     socket.value.on('connect', () => {
                         console.log('Socket connected:', socket.value.id);
                         resolve();
