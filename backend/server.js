@@ -18,7 +18,6 @@ app.use(cors({
 
 // 設定 Socket.IO 的 CORS
 const io = new Server(server, {
-    path: "/api/v1/socket.io/",
     cors: {
         origin: allowedOrigin,
         methods: ["GET", "POST"]

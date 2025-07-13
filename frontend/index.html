@@ -191,7 +191,7 @@
     const {createApp, ref, computed, onMounted, onUnmounted, nextTick} = Vue;
 
     // --- 組態設定 ---
-    const SIGNALING_SERVER_URL = 'wss://api-project.xinshou.tw/api/v1'; // 替換為您的 WebSocket 伺服器地址
+    const SIGNALING_SERVER_URL = 'wss://api-project.xinshou.tw'; // 替換為您的 WebSocket 伺服器地址
 
     createApp({
         setup() {
@@ -338,11 +338,7 @@
             const initSocket = () => {
                 return new Promise((resolve, reject) => {
                     // ... socket 連線部分不變 ...
-                    socket.value = io(SIGNALING_SERVER_URL, {
-                        path: "/api/v1/socket.io/",
-                        transports: ['websocket'],
-                        reconnectionAttempts: 3
-                    });
+                    socket.value = io(SIGNALING_SERVER_URL, {reconnectionAttempts: 3});
                     socket.value.on('connect', () => {
                         console.log('Socket connected:', socket.value.id);
                         resolve();
