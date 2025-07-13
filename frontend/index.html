@@ -141,14 +141,15 @@
                 <div class="bg-white/80 backdrop-blur-xl rounded-2xl p-4 sm:p-6 shadow-xl border border-white/30">
                     <div v-if="isCamera && localStream" class="max-w-xl mx-auto">
                         <h3 class="text-xl font-semibold text-center mb-4">📹 本機預覽</h3>
-                        <div class="rounded-2xl overflow-hidden shadow-lg border-2 border-white bg-gray-900">
-                            <video ref="localVideo" autoplay muted playsinline></video>
+                        <div class="rounded-2xl overflow-hidden shadow-lg border-2 border-white bg-gray-900 max-h-[70vh]">
+                            <video ref="localVideo" autoplay muted playsinline class="w-full h-full object-contain"></video>
                         </div>
                     </div>
                     <div v-if="isDisplay" class="relative">
-                        <div class="rounded-2xl overflow-hidden shadow-lg border-2 border-white bg-gray-900 min-h-[250px] sm:min-h-[400px] flex items-center justify-center">
+                        <div class="rounded-2xl overflow-hidden shadow-lg border-2 border-white bg-gray-900 min-h-[250px] sm:min-h-[400px] flex items-center justify-center max-h-[75vh]">
                             <video ref="remoteVideo" autoplay playsinline
-                                   :class="{ 'hidden': !hasRemoteStream }"></video>
+                                   :class="{ 'hidden': !hasRemoteStream }"
+                                   class="w-full h-full object-contain"></video>
                             <div v-if="!hasRemoteStream" class="text-center text-white p-8">
                                 <div class="text-6xl mb-4 animate-pulse">📺</div>
                                 <h4 class="text-xl font-semibold">等待攝影機串流...</h4>
