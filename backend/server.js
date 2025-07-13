@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const {Server} = require("socket.io");
-
+const cors = require('cors');
 
 // --- 伺服器基本設定 ---
 const app = express();
