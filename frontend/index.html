@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>即時投影</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        html {
+            -webkit-overflow-scrolling: touch;
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        /* Vue 過場動畫 */
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s ease;
+        }
+
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+
+        .slide-up-enter-active, .slide-up-leave-active {
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .slide-up-enter-from, .slide-up-leave-to {
+            transform: translateY(20px);
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen text-gray-800">
+<div id="app" class="flex flex-col min-h-screen">
+    <header class="text-center py-8 px-4 shrink-0">
+        <h1 class="text-4xl font-bold mb-2">即時投影</h1>
+        <p class="text-gray-600 text-lg">你要看的，都讓你看</p>
+    </header>
+
+    <main class="max-w-4xl w-full mx-auto px-4 pb-8 flex-grow">
+        <transition name="fade" mode="out-in">
+            <div v-if="view === 'home'" key="home"
+                 class="bg-white/80 backdrop-blur-xl rounded-2xl p-8 shadow-xl border border-white/30">
+                <h2 class="text-2xl font-semibold mb-6 text-center">請選擇使用模式</h2>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer border-2 border-transparent hover:border-blue-400 hover:-translate-y-1"
+                         @click="startAsCamera">
+                        <div class="text-center">
+                            <div class="text-6xl mb-4">📱</div>
+                            <h3 class="text-xl font-semibold mb-2">當作攝影機</h3>
+                            <p class="text-gray-600 text-sm">自動產生房號，並開始拍攝</p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer border-2 border-transparent hover:border-indigo-400 hover:-translate-y-1"
+                         @click="startAsDisplay">
+                        <div class="text-center">
+                            <div class="text-6xl mb-4">🖥️</div>
+                            <h3 class="text-xl font-semibold mb-2">當作顯示端</h3>
+                            <p class="text-gray-600 text-sm">輸入房號，接收並顯示影像</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="view === 'displayInput'" key="display-input"
+                 class="bg-white/80 backdrop-blur-xl rounded-2xl p-8 shadow-xl border border-white/30">
+                <h2 class="text-2xl font-semibold mb-6 text-center">🖥️ 輸入房號</h2>
+                <div class="max-w-xs mx-auto">
+                    <div class="mb-4">
+                        <label for="room-input" class="block text-sm font-medium text-gray-700 mb-2">請輸入 4
+                            位數房間號碼</label>
+                        <input id="room-input" v-model="inputRoomId" type="text" inputmode="numeric" pattern="[0-9]*"
+                               placeholder="例如：1234" maxlength="4"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-center text-3xl tracking-[0.2em] font-mono shadow-sm"/>
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <button @click="connectAsDisplay" :disabled="inputRoomId.length !== 4 || isConnecting"
+                                class="w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                                :class="primaryBtnClasses">
+                            <span v-if="isConnecting">連線中...</span><span v-else>開始接收</span>
+                        </button>
+                        <button @click="goHome" class="w-full" :class="secondaryBtnClasses">返回</button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else-if="view === 'main'" key="main" class="space-y-6">
+                <div class="bg-white/80 backdrop-blur-xl rounded-2xl p-4 shadow-xl border border-white/30">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <span :class="status.indicatorClasses">
+                                <span class="w-2.5 h-2.5 rounded-full inline-block mr-2"
+                                      :class="status.dotClasses"></span>
+                                {{ status.text }}
+                            </span>
+                        </div>
+                        <div class="text-sm text-gray-600 font-mono bg-white/70 px-2 py-1 rounded">
+                            房號：<span class="font-semibold text-indigo-600">{{ roomId }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="isCamera"
+                     class="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/30 space-y-4">
+                    <h3 class="text-xl font-semibold text-center">🔗 分享資訊</h3>
+                    <div class="p-4 bg-indigo-50 border border-dashed border-indigo-200 rounded-lg text-center">
+                        <p class="text-indigo-800">請讓觀眾輸入房號 <strong
+                                class="text-4xl font-mono tracking-widest block my-2">{{ roomId }}</strong> 或分享下方連結
+                        </p>
+                    </div>
+                    <div class="flex gap-2">
+                        <label>
+                            <input type="text" :value="shareUrl" readonly
+                                   class="w-full bg-blue-50 border border-blue-200 rounded-lg p-2 font-mono text-sm text-blue-800 break-all">
+                        </label>
+                        <button @click="copyShareUrl" :class="secondaryBtnClasses" class="px-4" title="複製連結">📋
+                        </button>
+                        <button v-if="canShare" @click="shareViaWeb" :class="secondaryBtnClasses" class="px-4"
+                                title="分享">🔗
+                        </button>
+                    </div>
+                    <div v-if="!hasRemoteConnection" class="text-center text-gray-500 animate-pulse pt-2">⏳
+                        等待顯示端連線...
+                    </div>
+                    <div v-else class="text-center text-green-600 font-semibold pt-2">✅ 顯示端已連線！</div>
+                </div>
+
+                <div class="bg-white/80 backdrop-blur-xl rounded-2xl p-4 sm:p-6 shadow-xl border border-white/30">
+                    <div v-if="isCamera && localStream" class="max-w-xl mx-auto">
+                        <h3 class="text-xl font-semibold text-center mb-4">📹 本機預覽</h3>
+                        <div class="rounded-2xl overflow-hidden shadow-lg border-2 border-white bg-gray-900">
+                            <video ref="localVideo" autoplay muted playsinline></video>
+                        </div>
+                    </div>
+                    <div v-if="isDisplay" class="relative">
+                        <div class="rounded-2xl overflow-hidden shadow-lg border-2 border-white bg-gray-900 min-h-[250px] sm:min-h-[400px] flex items-center justify-center">
+                            <video ref="remoteVideo" autoplay playsinline
+                                   :class="{ 'hidden': !hasRemoteStream }"></video>
+                            <div v-if="!hasRemoteStream" class="text-center text-white p-8">
+                                <div class="text-6xl mb-4 animate-pulse">📺</div>
+                                <h4 class="text-xl font-semibold">等待攝影機串流...</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-center gap-4 mt-6">
+                        <button v-if="isCamera" @click="switchCamera" :class="secondaryBtnClasses">🔄 切換鏡頭</button>
+                        <button v-if="isDisplay" @click="toggleFullscreen" :class="secondaryBtnClasses">🖼️ 全螢幕
+                        </button>
+                        <button @click="disconnect" :class="dangerBtnClasses">🛑 結束連線</button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+
+        <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-11/12 max-w-md z-50 space-y-3">
+            <transition name="slide-up">
+                <div v-if="errorMessage"
+                     class="bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+                    <span class="text-xl">⚠️</span>
+                    <p class="flex-grow">{{ errorMessage }}</p>
+                    <button @click="errorMessage = ''" class="text-red-500 text-2xl leading-none">&times;</button>
+                </div>
+            </transition>
+            <transition name="slide-up">
+                <div v-if="successMessage"
+                     class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+                    <span class="text-xl">✅</span>
+                    <p class="flex-grow">{{ successMessage }}</p>
+                    <button @click="successMessage = ''" class="text-green-500 text-2xl leading-none">&times;</button>
+                </div>
+            </transition>
+        </div>
+    </main>
+</div>
+
+<script>
+    const {createApp, ref, computed, onMounted, onUnmounted, nextTick} = Vue;
+
+    // --- 組態設定 ---
+    const SIGNALING_SERVER_URL = 'wss://api-project.xinshou.tw/api/v1'; // 替換為您的 WebSocket 伺服器地址
+
+    createApp({
+        setup() {
+            // --- 狀態管理 (State) ---
+            const view = ref('home'); // 'home', 'displayInput', 'main'
+            const role = ref(null); // 'camera', 'display'
+            const roomId = ref('');
+            const inputRoomId = ref('');
+            const isConnecting = ref(false);
+            const isConnected = ref(false);
+            const hasRemoteStream = ref(false);
+            const hasRemoteConnection = ref(false);
+            const errorMessage = ref('');
+            const successMessage = ref('');
+            const currentCamera = ref('environment'); // 優先使用後置鏡頭 'environment'
+
+            const socket = ref(null);
+            const peer = ref(null);
+            const localStream = ref(null);
+
+            const localVideo = ref(null);
+            const remoteVideo = ref(null);
+
+            // --- 計算屬性 (Computed) ---
+            const isCamera = computed(() => role.value === 'camera');
+            const isDisplay = computed(() => role.value === 'display');
+            const shareUrl = computed(() => `${window.location.origin}${window.location.pathname}?room=${roomId.value}`);
+            const canShare = computed(() => !!navigator.share);
+
+            const status = computed(() => {
+                if (isConnected.value) {
+                    if (isCamera.value && !hasRemoteConnection.value) return {
+                        text: '等待連線',
+                        indicatorClasses: 'bg-yellow-100 text-yellow-800',
+                        dotClasses: 'bg-yellow-500 animate-pulse'
+                    };
+                    if (isDisplay.value && !hasRemoteStream.value) return {
+                        text: '等待串流',
+                        indicatorClasses: 'bg-yellow-100 text-yellow-800',
+                        dotClasses: 'bg-yellow-500 animate-pulse'
+                    };
+                    return {
+                        text: '已連線',
+                        indicatorClasses: 'bg-green-100 text-green-800',
+                        dotClasses: 'bg-green-500'
+                    };
+                }
+                if (isConnecting.value) return {
+                    text: '連線中...',
+                    indicatorClasses: 'bg-blue-100 text-blue-800',
+                    dotClasses: 'bg-blue-500 animate-spin'
+                };
+                return {text: '未連線', indicatorClasses: 'bg-red-100 text-red-800', dotClasses: 'bg-red-500'};
+            });
+
+            // --- UI Class 樣式 (統一管理) ---
+            const baseBtnClasses = 'font-semibold py-2 px-5 rounded-lg shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 focus:outline-none focus:ring-4';
+            const primaryBtnClasses = computed(() => `${baseBtnClasses} bg-gradient-to-r from-blue-500 to-indigo-600 text-white focus:ring-blue-300`);
+            const secondaryBtnClasses = computed(() => `${baseBtnClasses} bg-white hover:bg-gray-100 text-gray-800 border border-gray-200 focus:ring-gray-200`);
+            const dangerBtnClasses = computed(() => `${baseBtnClasses} bg-red-500 hover:bg-red-600 text-white focus:ring-red-300`);
+
+            // --- 方法 (Methods) ---
+            const showMessage = (msg, type = 'error', duration = 4000) => {
+                if (type === 'error') {
+                    errorMessage.value = msg;
+                    setTimeout(() => errorMessage.value = '', duration);
+                } else {
+                    successMessage.value = msg;
+                    setTimeout(() => successMessage.value = '', duration);
+                }
+            };
+
+            const cleanup = () => {
+                if (localStream.value) localStream.value.getTracks().forEach(track => track.stop());
+                if (peer.value) peer.value.destroy();
+                if (socket.value) socket.value.disconnect();
+                localStream.value = peer.value = socket.value = null;
+                isConnected.value = hasRemoteStream.value = hasRemoteConnection.value = false;
+            };
+
+            const goHome = () => {
+                cleanup();
+                view.value = 'home';
+                role.value = null;
+                roomId.value = inputRoomId.value = '';
+            };
+
+            const disconnect = () => goHome();
+
+            const startAsCamera = async () => {
+                role.value = 'camera';
+                roomId.value = Math.floor(1000 + Math.random() * 9000).toString();
+                view.value = 'main';
+                await connect();
+            };
+
+            const startAsDisplay = () => {
+                role.value = 'display';
+                view.value = 'displayInput';
+            };
+
+            const connectAsDisplay = async () => {
+                if (inputRoomId.value.length !== 4) return;
+                roomId.value = inputRoomId.value;
+                view.value = 'main';
+                await connect();
+            };
+
+            const connect = async () => {
+                if (isConnecting.value || isConnected.value) return;
+                isConnecting.value = true;
+
+                try {
+                    if (isCamera.value) await initCamera();
+                    await initSocket();
+                    socket.value.emit('join-room', roomId.value);
+                    isConnected.value = true;
+                } catch (error) {
+                    showMessage(`連線失敗: ${error.message}`);
+                    goHome();
+                } finally {
+                    isConnecting.value = false;
+                }
+            };
+
+            const initCamera = async () => {
+                try {
+                    const constraints = {
+                        video: {
+                            facingMode: currentCamera.value,
+                            width: {ideal: 1280},
+                            height: {ideal: 720}
+                        }, audio: false
+                    };
+                    localStream.value = await navigator.mediaDevices.getUserMedia(constraints);
+                    await nextTick();
+                    if (localVideo.value) localVideo.value.srcObject = localStream.value;
+                } catch (error) {
+                    console.error('Camera init error:', error);
+                    throw new Error('無法訪問攝影機，請確認已授權。');
+                }
+            };
+
+            const initSocket = () => {
+                return new Promise((resolve, reject) => {
+                    // ... socket 連線部分不變 ...
+                    socket.value = io(SIGNALING_SERVER_URL, {reconnectionAttempts: 3});
+                    socket.value.on('connect', () => {
+                        console.log('Socket connected:', socket.value.id);
+                        resolve();
+                    });
+                    socket.value.on('connect_error', () => reject(new Error('無法連接到伺服器')));
+
+                    // 當有新用戶加入時，攝影機端會收到此訊息
+                    socket.value.on('user-joined', (data) => {
+                        if (isCamera.value) {
+                            initiateCall(data.userId); // 攝影機發起呼叫
+                        }
+                    });
+
+                    // 【新增】顯示端監聽來自攝影機的 Offer
+                    socket.value.on('offer-received', (data) => {
+                        if (isDisplay.value) {
+                            receiveCall(data.signal); // 顯示端接收呼叫並建立 peer
+                        }
+                    });
+
+                    // 【維持】用於接收後續的 Answer 或 ICE 信令
+                    socket.value.on('signal', (data) => {
+                        if (peer.value && !peer.value.destroyed) {
+                            peer.value.signal(data.signal);
+                        }
+                    });
+
+                    socket.value.on('user-left', () => {
+                        showMessage('對方已離線', 'error');
+                        hasRemoteConnection.value = false;
+                        hasRemoteStream.value = false;
+                        if (peer.value) {
+                            peer.value.destroy();
+                            peer.value = null;
+                        }
+                    });
+                });
+            };
+
+            const setupPeerListeners = (p) => {
+                p.on('signal', (signalData) => {
+                    // 將 'signal' 改為 'forward-signal'
+                    socket.value.emit('forward-signal', {signal: signalData});
+                });
+                // ... 其他監聽器不變 ...
+                p.on('connect', () => hasRemoteConnection.value = true);
+                p.on('stream', (stream) => {
+                    hasRemoteStream.value = true;
+                    if (remoteVideo.value) remoteVideo.value.srcObject = stream;
+                });
+                p.on('close', () => hasRemoteConnection.value = false);
+                p.on('error', (err) => showMessage(`P2P連線錯誤: ${err.message}`));
+            };
+            const initiateCall = (targetUserId) => {
+                if (peer.value) peer.value.destroy();
+                peer.value = new SimplePeer({initiator: true, trickle: false, stream: localStream.value});
+                setupPeerListeners(peer.value);
+            };
+
+            const receiveCall = (signal) => {
+                if (peer.value) peer.value.destroy();
+                peer.value = new SimplePeer({initiator: false, trickle: false});
+                setupPeerListeners(peer.value);
+                peer.value.signal(signal);
+            };
+
+            // --- 控制項方法 ---
+            const switchCamera = async () => {
+                currentCamera.value = currentCamera.value === 'user' ? 'environment' : 'user';
+                try {
+                    await initCamera(); // Re-initialize camera with new facing mode
+                    if (peer.value && peer.value._pc) {
+                        const sender = peer.value._pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                        if (sender) await sender.replaceTrack(localStream.value.getVideoTracks()[0]);
+                    }
+                    showMessage('鏡頭切換成功', 'success');
+                } catch (error) {
+                    showMessage(`切換鏡頭失敗: ${error.message}`);
+                }
+            };
+
+            const toggleFullscreen = () => {
+                if (!remoteVideo.value) return;
+                if (!document.fullscreenElement) remoteVideo.value.requestFullscreen().catch(err => showMessage(`無法進入全螢幕: ${err.message}`));
+                else document.exitFullscreen();
+            };
+
+            const copyShareUrl = async () => {
+                try {
+                    await navigator.clipboard.writeText(shareUrl.value);
+                    showMessage('連結已複製到剪貼簿', 'success');
+                } catch (err) {
+                    showMessage('複製失敗，您的瀏覽器可能不支援此功能。');
+                }
+            };
+
+            const shareViaWeb = () => navigator.share({title: '手機鏡頭即時投影', url: shareUrl.value});
+
+            // --- 生命週期 (Lifecycle) ---
+            onMounted(() => {
+                const urlParams = new URLSearchParams(window.location.search);
+                const roomFromUrl = urlParams.get('room');
+                if (roomFromUrl && /^\d{4}$/.test(roomFromUrl)) {
+                    inputRoomId.value = roomFromUrl;
+                    startAsDisplay();
+                    connectAsDisplay();
+                }
+            });
+            onUnmounted(() => cleanup());
+
+            return {
+                view,
+                role,
+                isCamera,
+                isDisplay,
+                roomId,
+                inputRoomId,
+                isConnecting,
+                isConnected,
+                hasRemoteStream,
+                hasRemoteConnection,
+                errorMessage,
+                successMessage,
+                shareUrl,
+                canShare,
+                status,
+                primaryBtnClasses,
+                secondaryBtnClasses,
+                dangerBtnClasses,
+                localVideo,
+                remoteVideo,
+                localStream,
+                startAsCamera,
+                startAsDisplay,
+                connectAsDisplay,
+                goHome,
+                disconnect,
+                switchCamera,
+                toggleFullscreen,
+                copyShareUrl,
+                shareViaWeb,
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "webrtc-projection-server-v2",
+  "version": "2.0.0",
+  "description": "Robust signaling server for the WebRTC projection service.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node_modules/.bin/nodemon server.js"
+  },
+  "author": "Gemini AI",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
