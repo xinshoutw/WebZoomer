@@ -355,6 +355,15 @@
                         }
                     });
 
+                    socket.value.on('room-full', (data) => {
+                        // 顯示錯誤訊息給使用者
+                        showMessage('連線失敗：該房間已滿員！');
+                        // 可以選擇直接將使用者導回首頁
+                        goHome();
+                        // 拒絕 Promise，中斷連線流程
+                        reject(new Error('Room is full.'));
+                    });
+
                     // 【新增】顯示端監聽來自攝影機的 Offer
                     socket.value.on('offer-received', (data) => {
                         if (isDisplay.value) {
